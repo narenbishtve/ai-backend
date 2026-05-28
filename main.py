@@ -29,7 +29,7 @@ def getNotes():
 #            }    
 @app.get("/commits")
 def getCommitMessages():
-    url="https://api.github.com/repos/QantumLoyalty/qantum-apps/commits?sha=dev"
+    url="https://api.github.com/repos/QantumLoyalty/qantum-apps/commits?sha=dev&per_page=100&page=1"
     response=requests.get(url)
     commits_data=response.json()
     commits=[]
