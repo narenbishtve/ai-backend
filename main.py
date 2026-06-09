@@ -4,11 +4,18 @@ from firebase_admin import credentials, firestore
 import requests
 from google import genai
 import os
+import json
 from dotenv import load_dotenv
 
 app=FastAPI()
 
-cred=credentials.Certificate("rememberFirebase.json")
+firebase_json = os.getenv("FIREBASE_CREDENTIALS")
+if firebase_json:
+    cred = credentials.Certificate(json.loads(firebase_json))
+else:
+    cred = credentials.Certificate("rememberFirebase.json")
+
+#cred=credentials.Certificate("rememberFirebase.json")
 firebase_admin.initialize_app(cred)
 
 db=firestore.client()
