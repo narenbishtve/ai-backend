@@ -1,2 +1,5 @@
 echo "rememberFirebase.json" >> .gitignore
 echo "*.json" >> .gitignore
+*.json
+.env
+rememberFirebase.json
