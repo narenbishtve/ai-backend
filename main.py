@@ -6,6 +6,7 @@ from google import genai
 import os
 import json
 from dotenv import load_dotenv
+import time
 
 app=FastAPI()
 
@@ -121,9 +122,41 @@ def generateNotificationMessage(message:str):
     return {"message": getMessage(message)}
 
 def getMessage(message:str) -> str:
+    models = [
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-2.5-flash"]
+    max_retries = 3
     prompt=PROMPT_TEMPLATE.format(user_input=message)
-    response=client.models.generate_content(model="gemini-2.5-flash",contents=prompt)
-    return response.text.strip()
+    for model in models:
+        for attempt in range(max_retries):
+            try:
+              response=client.models.generate_content(model=model,contents=prompt)
+              return response.text.strip()
+            except Exception as e:
+                error =str(e).lower()
+                retryable=("high demand" in error
+                    or "429" in error
+                    or "503" in error
+                    or "resource_exhausted" in error
+                    or "unavailable" in error)
+                if retryable and attempt<max_retries-1:
+                    wait_time = 2 ** attempt  # 1, 2, 4 seconds
+                    print(
+                        f"Model {model} busy. Retrying in {wait_time}s..."
+                    )
+                    time.sleep(wait_time)
+                    continue
+                print(f"Model {model} failed: {e}")
+                break
+        return ("Today marks a special milestone. Congratulations on your anniversary! 🎉" )
+
+
+
+
+    
+    
+    
 
 
 
