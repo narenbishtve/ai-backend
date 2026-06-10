@@ -3,3 +3,4 @@ echo "*.json" >> .gitignore
 *.json
 .env
 rememberFirebase.json
+.env
