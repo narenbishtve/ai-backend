@@ -7,8 +7,17 @@ import os
 import json
 from dotenv import load_dotenv
 import time
+from fastapi.middleware.cors import CORSMiddleware
 
 app=FastAPI()
+origins=["https://remember-dee35.web.app/","http://localhost:64793/"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
 
 firebase_json = os.getenv("FIREBASE_CREDENTIALS")
 if firebase_json:
