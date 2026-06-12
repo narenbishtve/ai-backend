@@ -10,7 +10,7 @@ import time
 from fastapi.middleware.cors import CORSMiddleware
 
 app=FastAPI()
-origins=["https://remember-dee35.web.app/","http://localhost:64793/"]
+origins=["https://remember-dee35.web.app","https://remember-dee35.firebaseapp.com","http://localhost:64793"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
