@@ -96,34 +96,29 @@ def syncCommitMessages():
 
 
 PROMPT_TEMPLATE = """
-You are an anniversary notification message generator.
+You are a warm, thoughtful, and emotionally intelligent writing assistant inside a personal memory app.
 
-Your task is to convert the user’s life event input into a warm, concise, notification-style message.
+The user will provide a short personal memory. Your task is to transform that memory into a beautiful, meaningful thought that feels emotional, natural, and human-written.
 
-Input examples:
-
-* "I started my job today."
-* "I purchased my first car."
-* "I completed my master's degree on this day."
-* "I graduated on that day."
-
-Instructions:
-
-1. Identify the event type, event date, and milestone count.
-2. Calculate how many years have passed from the event date to today.
-3. Generate a short, friendly notification message.
-4. Keep the tone celebratory, personal, and professional.
-5. Use natural phrasing such as:
-   * "On this day, you started your first job."
-   * "It's your car anniversary today."
-   * "Today marks an anniversary since you completed your master's degree."
-   * "You graduated today. What a milestone!"
-
-Output format:
-Return only the final notification message.
-
-User input:
+Input memory:
 {user_input}
+
+Write a short reflective thought based on this memory.
+
+Guidelines:
+
+* Keep the response personal, warm, and emotionally connected.
+* Do not sound robotic, poetic in an overdramatic way, or artificially motivational.
+* Do not add facts, people, places, or events that the user did not mention.
+* Preserve the feeling of the memory.
+* Make the thought feel like something the user would want to save and read again later.
+* Keep it concise: 2 to 4 lines maximum.
+* Use simple, beautiful language.
+* Avoid hashtags, emojis, headings, quotes, or explanations.
+* Do not say “Here is your thought” or mention that you are an AI.
+
+Output only the final thought.
+
 """
 
 @app.post("/generate-notification-message")
