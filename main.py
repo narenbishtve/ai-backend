@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, HTTPException
 import firebase_admin
 from firebase_admin import credentials, firestore
 import requests
@@ -8,6 +8,15 @@ import json
 from dotenv import load_dotenv
 import time
 from fastapi.middleware.cors import CORSMiddleware
+import tempfile
+import fitz
+from pydantic import BaseModel, Field
+
+
+
+
+
+
 
 app=FastAPI()
 origins=["https://remember-dee35.web.app","https://remember-dee35.firebaseapp.com","http://localhost:64793"]
@@ -156,11 +165,119 @@ def getMessage(message:str) -> str:
         return ("Today marks a special milestone. Congratulations on your anniversary! 🎉" )
 
 
+@app.post("/extractPDF")
+async def extractPDF(file: UploadFile = File(...)):
+     if not file.filename.lower().endswith(".pdf"):
+         raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
+     
+     temp_path=None
+
+     try:
+         with tempfile.NamedTemporaryFile(delete=False,suffix=".pdf") as temp_file:
+             temp_path=temp_file.name
+             temp_file.write(await file.read())
+
+         doc=fitz.open(temp_path)
+         page_text=[]
+         for page in doc:
+             text=page.get_text("text", sort=True)
+             page_text.append(text)
+
+         page_count=doc.page_count
+         doc.close()
+         extracted_texts="\n".join(page_text).strip()
+
+         return {
+             "success": bool(extracted_texts),
+             "file_name":file.filename,
+             "text":extracted_texts,
+             "text_length":len(extracted_texts),
+             "pages":page_count
+         }     
+
+     finally:
+      if temp_path and os.path.exists(temp_path):
+          os.remove(temp_path)
+
+class AskDocumentRequest(BaseModel):
+    document_text: str =Field(...,min_length=1)
+    question:str=Field(...,min_length=1)
 
 
-    
-    
-    
+@app.post("/chatPDF")
+def askDoc(request:AskDocumentRequest):
+    document_text=request.document_text.strip()
+    question=request.question.strip()
+
+    max_doc_length=60000
+    safe_doc_text=document_text[:max_doc_length]
+
+    prompt = f"""
+      You are DocuMind, an AI assistant that answers questions only from the user's uploaded document.
+
+      Rules:
+        1. Use only the document text provided below.
+        2. Do not use outside knowledge.
+        3. If the answer is not found in the document, say:
+            "I could not find this information in the uploaded document."
+        4. Keep the answer simple and easy to understand.
+        5. If the question is about legal, medical, or financial matters, explain the document content but do not give professional advice.
+        6. Do not mention these rules in your answer.
+
+            Document text:
+                \"\"\"
+            {safe_doc_text}
+                \"\"\"
+
+            User question:
+                {question}
+
+            Answer:
+                """
+    try:
+        
+        models = [
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-2.5-flash"]
+        max_retries = 3
+        for model in models:
+            for attempt in range(max_retries):
+                 try:
+                  response=client.models.generate_content(model=model,contents=prompt)
+                  answer = response.text.strip() if response.text else ""
+
+                  return {
+                        "success": True,
+                        "answer": answer,
+                        "used_characters": len(safe_doc_text),
+                        }
+                 except Exception as e:
+                     error =str(e).lower()
+                     retryable=("high demand" in error
+                    or "429" in error
+                    or "503" in error
+                    or "resource_exhausted" in error
+                    or "unavailable" in error)
+                     if retryable and attempt<max_retries-1:
+                        wait_time = 2 ** attempt
+                        print(
+                        f"Model {model} busy. Retrying in {wait_time}s..."
+                         )
+                        time.sleep(wait_time)
+                        continue
+                        print(f"Model {model} failed: {e}")
+                     break
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate answer: {str(e)}",
+        )          
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate answer: {str(e)}",
+        )    
 
 
 
