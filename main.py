@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import tempfile
 import fitz
 from pydantic import BaseModel, Field
-
+import asyncio
 
 
 
@@ -164,6 +164,155 @@ def getMessage(message:str) -> str:
                 break
         return ("Today marks a special milestone. Congratulations on your anniversary! 🎉" )
 
+class SimplifyPdfRequest(BaseModel):
+    text: str = Field(..., min_length=50)
+
+
+@app.post("/simplifyPDF")
+async def simplifyPDF(request: SimplifyPdfRequest):
+    
+    document_text = request.text.strip()
+
+    DOCUMENT_ANALYSIS_PROMPT =  """
+You are ClearDocs AI, a professional document analysis assistant.
+
+Your task is to analyze the user's uploaded document text and extract useful information in a clear, simple, and structured way.
+
+Use only the information inside DOCUMENT_TEXT.
+Do not use outside knowledge.
+Do not guess.
+If information is not found, return an empty list or null.
+
+Return only valid JSON.
+Do not include markdown.
+Do not wrap JSON in ```json.
+Do not include explanation outside JSON.
+
+Required JSON structure:
+
+{
+  "summary": {
+    "title": "Short title for the document",
+    "description": "A short and simple summary of the document in 2 to 4 sentences only."
+  },
+  "key_details": [
+    {
+      "label": "Important detail name",
+      "value": "Important detail value",
+      "description": "Short explanation if needed"
+    }
+  ],
+  "important_dates": [
+    {
+      "label": "Date name",
+      "date": "Date value exactly as found in the document",
+      "description": "Why this date is important"
+    }
+  ],
+  "risks_found": [
+    {
+      "title": "Risk title",
+      "level": "High | Medium | Low",
+      "description": "Simple explanation of the risk",
+      "reason": "Why this may need attention"
+    }
+  ],
+  "document_type": "Agreement | Insurance | Bill | Medical Report | Certificate | Loan Document | Policy | Invoice | Guide | Other",
+  "confidence": "High | Medium | Low"
+}
+
+Summary rules:
+- Keep it short.
+- Use simple language.
+- Maximum 2 to 4 sentences.
+- Explain what the document is mainly about.
+
+Key Details rules:
+- Extract important points only.
+- Include commands, rules, steps, amounts, names, numbers, conditions, or important values if available.
+- Do not add anything that is not present in the document.
+
+Important Dates rules:
+- Extract only dates clearly found in the document.
+- If no important dates are found, return an empty list.
+
+Risks Found rules:
+- Find possible warnings or things the user should be careful about.
+- Examples: dangerous commands, strict deadline, penalty, missing information, expiry, cancellation rule, payment risk, unsafe action.
+- Risk levels:
+  - High: serious impact or possible loss/damage.
+  - Medium: needs attention.
+  - Low: minor caution.
+- Do not create fake risks.
+- If no risks are found, return an empty list.
+
+DOCUMENT_TEXT:
+\"\"\"
+__DOCUMENT_TEXT__
+\"\"\"
+"""
+    try:
+        
+        models = [
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-2.5-flash"]
+        max_retries = 3
+        for model in models:
+          for attempt in range(max_retries):
+            try:
+                prompt = DOCUMENT_ANALYSIS_PROMPT.replace("__DOCUMENT_TEXT__",document_text)
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                )
+
+                answer = response.text.strip() if response.text else ""
+
+                if not answer:
+                    raise Exception("Empty response from AI model.")
+
+                # Clean possible accidental markdown formatting
+                answer = answer.replace("```json", "").replace("```", "").strip()
+
+                try:
+                    parsed_json = json.loads(answer)
+                except json.JSONDecodeError:
+                    raise Exception(f"AI returned invalid JSON: {answer[:300]}")
+
+                return {
+                    "success": True,
+                    "model_used": model,
+                    "data": parsed_json,
+                    "used_characters": len(document_text),
+                    "truncated": len(document_text) > 60000,
+                }
+
+            except Exception as e:
+                last_error = e
+                error = str(e).lower()
+
+                retryable = (
+                    "high demand" in error
+                    or "429" in error
+                    or "503" in error
+                    or "resource_exhausted" in error
+                    or "unavailable" in error
+                )
+
+                print(f"Model {model} failed on attempt {attempt + 1}: {e}")
+
+                if retryable and attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    print(f"Retrying in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                    continue
+
+                break
+    except Exception as exce:
+            HTTPException(status_code=500,detail=f"Failed to analyze document: {str(last_error)}")    
+
+    
 
 @app.post("/extractPDF")
 async def extractPDF(file: UploadFile = File(...)):
@@ -205,7 +354,7 @@ class AskDocumentRequest(BaseModel):
 
 
 @app.post("/chatPDF")
-def askDoc(request:AskDocumentRequest):
+async def askDoc(request:AskDocumentRequest):
     document_text=request.document_text.strip()
     question=request.question.strip()
 
@@ -242,32 +391,56 @@ def askDoc(request:AskDocumentRequest):
         "gemini-2.5-flash"]
         max_retries = 3
         for model in models:
-            for attempt in range(max_retries):
-                 try:
-                  response=client.models.generate_content(model=model,contents=prompt)
-                  answer = response.text.strip() if response.text else ""
+         print(f"Trying model: {model}")
 
-                  return {
-                        "success": True,
-                        "answer": answer,
-                        "used_characters": len(safe_doc_text),
-                        }
-                 except Exception as e:
-                     error =str(e).lower()
-                     retryable=("high demand" in error
-                    or "429" in error
+         for attempt in range(max_retries):
+            try:
+                print(f"Attempt {attempt + 1} for model: {model}")
+
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                )
+
+                answer = response.text.strip() if response.text else ""
+
+                if not answer:
+                    raise Exception("Empty response from AI model.")
+
+                return {
+                    "success": True,
+                    "model_used": model,
+                    "answer": answer,
+                }
+
+            except Exception as e:
+                last_error = e
+                error = str(e).lower()
+
+                retryable = (
+                    "high demand" in error
                     or "503" in error
+                    or "unavailable" in error
                     or "resource_exhausted" in error
-                    or "unavailable" in error)
-                     if retryable and attempt<max_retries-1:
-                        wait_time = 2 ** attempt
-                        print(
-                        f"Model {model} busy. Retrying in {wait_time}s..."
-                         )
-                        time.sleep(wait_time)
-                        continue
-                        print(f"Model {model} failed: {e}")
-                     break
+                    or "429" in error
+                )
+
+                print(
+                    f"Model failed: {model}, "
+                    f"attempt: {attempt + 1}, "
+                    f"retryable: {retryable}, "
+                    f"error: {e}"
+                )
+
+                if retryable and attempt < max_retries - 1:
+                    wait_time = 2 ** attempt
+                    print(f"Retrying same model in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                    continue
+
+                print(f"Moving to next model after failure: {model}")
+                break
+
         raise HTTPException(
             status_code=500,
             detail=f"Failed to generate answer: {str(e)}",
