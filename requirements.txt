@@ -48,4 +48,5 @@ uvicorn==0.39.0
 websockets==15.0.1
 python-multipart
 pymupdf
+python-docx
 

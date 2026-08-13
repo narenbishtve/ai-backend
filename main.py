@@ -12,9 +12,11 @@ import tempfile
 import fitz
 from pydantic import BaseModel, Field
 import asyncio
+from docx import Document
 
 
-
+ALLOWED_EXTENSIONS = {".pdf", ".docx"}
+MAX_FILE_SIZE = 25 * 1024 * 1024 
 
 
 
@@ -316,31 +318,58 @@ __DOCUMENT_TEXT__
 
 @app.post("/extractPDF")
 async def extractPDF(file: UploadFile = File(...)):
-     if not file.filename.lower().endswith(".pdf"):
-         raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
-     
-     temp_path=None
+     allowed_extensions = [".pdf", ".docx", ".txt"]
+
+     file_name = file.filename or ""
+     extension = os.path.splitext(file_name)[1].lower()
+
+     if extension not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF, DOCX and TXT files are allowed."
+        )
+
+     temp_path = None
 
      try:
-         with tempfile.NamedTemporaryFile(delete=False,suffix=".pdf") as temp_file:
+         with tempfile.NamedTemporaryFile(delete=False,suffix=extension) as temp_file:
              temp_path=temp_file.name
              temp_file.write(await file.read())
 
-         doc=fitz.open(temp_path)
-         page_text=[]
-         for page in doc:
-             text=page.get_text("text", sort=True)
-             page_text.append(text)
+         extracted_text = ""
+         page_count = None
 
-         page_count=doc.page_count
-         doc.close()
-         extracted_texts="\n".join(page_text).strip()
+         if extension == ".pdf":
+           doc=fitz.open(temp_path)
+           try:
+             page_text=[]
+           finally:
+               doc.close()        
+         elif extension ==".docx":
+             doc=Document(temp_path)
+             paragraphs=[]
+
+             for paragraph in doc.paragraphs:
+                 text=paragraph.text.strip()
+
+                 if text:
+                     paragraphs.append(text)
+
+             extracted_text="\n".join(paragraphs).strip()       
+
+         elif extension ==".txt":
+             try:
+                 with open(temp_path,"r",encoding="utf-8") as txt_file:
+                     extracted_text=txt_file.read().strip()
+             except UnicodeDecodeError:
+                 with open(temp_path,"r",encoding="latin-1") as txt_file:
+                     extracted_text=txt_file.read().strip()
 
          return {
-             "success": bool(extracted_texts),
+             "success": bool(extracted_text),
              "file_name":file.filename,
-             "text":extracted_texts,
-             "text_length":len(extracted_texts),
+             "text":extracted_text,
+             "text_length":len(extracted_text),
              "pages":page_count
          }     
 
