@@ -318,65 +318,88 @@ __DOCUMENT_TEXT__
 
 @app.post("/extractPDF")
 async def extractPDF(file: UploadFile = File(...)):
-     allowed_extensions = [".pdf", ".docx", ".txt"]
+    allowed_extensions = [".pdf", ".docx", ".txt"]
 
-     file_name = file.filename or ""
-     extension = os.path.splitext(file_name)[1].lower()
+    file_name = file.filename or ""
+    extension = os.path.splitext(file_name)[1].lower()
 
-     if extension not in allowed_extensions:
+    if extension not in allowed_extensions:
         raise HTTPException(
             status_code=400,
             detail="Only PDF, DOCX and TXT files are allowed."
         )
 
-     temp_path = None
+    temp_path = None
 
-     try:
-         with tempfile.NamedTemporaryFile(delete=False,suffix=extension) as temp_file:
-             temp_path=temp_file.name
-             temp_file.write(await file.read())
+    try:
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=extension
+        ) as temp_file:
+            temp_path = temp_file.name
+            temp_file.write(await file.read())
 
-         extracted_text = ""
-         page_count = None
+        extracted_text = ""
+        page_count = None
 
-         if extension == ".pdf":
-           doc=fitz.open(temp_path)
-           try:
-             page_text=[]
-           finally:
-               doc.close()        
-         elif extension ==".docx":
-             doc=Document(temp_path)
-             paragraphs=[]
+        if extension == ".pdf":
+            doc = fitz.open(temp_path)
 
-             for paragraph in doc.paragraphs:
-                 text=paragraph.text.strip()
+            try:
+                page_text = []
+                page_count = len(doc)
 
-                 if text:
-                     paragraphs.append(text)
+                for page in doc:
+                    text = page.get_text("text").strip()
 
-             extracted_text="\n".join(paragraphs).strip()       
+                    if text:
+                        page_text.append(text)
 
-         elif extension ==".txt":
-             try:
-                 with open(temp_path,"r",encoding="utf-8") as txt_file:
-                     extracted_text=txt_file.read().strip()
-             except UnicodeDecodeError:
-                 with open(temp_path,"r",encoding="latin-1") as txt_file:
-                     extracted_text=txt_file.read().strip()
+                extracted_text = "\n".join(page_text).strip()
 
-         return {
-             "success": bool(extracted_text),
-             "file_name":file.filename,
-             "text":extracted_text,
-             "text_length":len(extracted_text),
-             "pages":page_count
-         }     
+            finally:
+                doc.close()
 
-     finally:
-      if temp_path and os.path.exists(temp_path):
-          os.remove(temp_path)
+        elif extension == ".docx":
+            doc = Document(temp_path)
+            paragraphs = []
 
+            for paragraph in doc.paragraphs:
+                text = paragraph.text.strip()
+
+                if text:
+                    paragraphs.append(text)
+
+            extracted_text = "\n".join(paragraphs).strip()
+
+        elif extension == ".txt":
+            try:
+                with open(
+                    temp_path,
+                    "r",
+                    encoding="utf-8"
+                ) as txt_file:
+                    extracted_text = txt_file.read().strip()
+
+            except UnicodeDecodeError:
+                with open(
+                    temp_path,
+                    "r",
+                    encoding="latin-1"
+                ) as txt_file:
+                    extracted_text = txt_file.read().strip()
+
+        return {
+            "success": bool(extracted_text),
+            "file_name": file.filename,
+            "text": extracted_text,
+            "text_length": len(extracted_text),
+            "pages": page_count
+        }
+
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 class AskDocumentRequest(BaseModel):
     document_text: str =Field(...,min_length=1)
     question:str=Field(...,min_length=1)
