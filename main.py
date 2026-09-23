@@ -13,7 +13,7 @@ import fitz
 from pydantic import BaseModel, Field
 import asyncio
 from docx import Document
-
+from google.genai import types
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx"}
 MAX_FILE_SIZE = 25 * 1024 * 1024 
@@ -504,7 +504,162 @@ async def askDoc(request:AskDocumentRequest):
             detail=f"Failed to generate answer: {str(e)}",
         )    
 
+# WISHES SUGGESTION REQUEST MODEL
+class WishesSuggestionRequest(BaseModel):
+    name: str = Field(min_length=1)
+    dob: str
+    gender: str
+    relationship: str
+    language: str="English"
+    event: str
 
+# WISH MODEL 
+class Wishes(BaseModel):
+    id: int
+    wish: str
 
+# WISHES SUGGESTION RESPONSE MODEL
+class WishesSuggestionResponse(BaseModel):
+    Wishes: list[Wishes]
 
-    
+# METHOD WHICH WILL CREATE & FILL THE DATA ON PROMPT
+def create_wishes_prompt(data: WishesSuggestionRequest) -> str:
+
+    return f"""
+You are a professional greeting and message writer.
+
+Generate personalized {data.event} wishes for the following person.
+
+Person details:
+
+Name: {data.name}
+Date of Birth: {data.dob}
+Gender: {data.gender}
+Relationship: {data.relationship}
+Language: {data.language}
+Event: {data.event}
+
+Your task is to generate exactly 10 unique {data.event} wishes.
+
+Use the provided information intelligently.
+
+Event-specific behavior:
+
+- If the event is Birthday:
+  - Use the Date of Birth to infer the person's approximate age.
+  - Generate wishes that feel appropriate for their age group.
+  - Do not explicitly mention the person's exact age unless it naturally improves the message.
+  - Focus on happiness, growth, success, memories, celebration, and the year ahead.
+
+- If the event is Anniversary:
+  - Focus primarily on the relationship and the meaning of the anniversary.
+  - Generate wishes around togetherness, love, companionship, memories, happiness, and the journey ahead.
+  - Do not use the Date of Birth to determine the tone of an anniversary wish.
+  - Avoid birthday-related wording such as "Happy Birthday", "another year older", "birthday cake", or similar phrases.
+
+Relationship guidance:
+
+- Friend: warm, casual, cheerful, playful, and supportive.
+- Best Friend: personal, emotional, funny, and close.
+- Colleague: friendly, polished, and professional.
+- Manager/Boss: respectful, positive, and professional.
+- Brother/Sister: affectionate, personal, and playful.
+- Mother/Father: warm, respectful, emotional, and grateful.
+- Husband/Wife/Partner: affectionate, romantic, and heartfelt.
+- Relative: warm, respectful, and family-oriented.
+- Other relationships: infer an appropriate tone from the relationship provided.
+
+Use Gender only when it helps make the language, grammar, or expression sound more natural.
+
+Do not stereotype the person based on gender.
+
+Personalize the wishes using the person's name where appropriate.
+
+Do not simply repeat the input values in the wishes.
+
+Language rules:
+
+- Write every wish in the requested language: {data.language}.
+- If the language is Hinglish, naturally mix conversational Hindi written in English letters with English.
+- Avoid awkward literal translations.
+- Keep the language natural, culturally appropriate, and easy to understand.
+
+Content requirements:
+
+- Generate exactly 10 wishes.
+- Every wish must clearly match the event: {data.event}.
+- Each wish must be meaningfully different.
+- Avoid repetitive openings, sentence structures, and ideas.
+- Keep each wish between 1 and 3 sentences.
+- Keep the tone positive, warm, respectful, and natural.
+- Avoid making assumptions about profession, religion, marital status, hobbies, personality, health, appearance, or life circumstances unless explicitly provided.
+- Avoid insensitive comments about age, gender, body, health, or personal circumstances.
+
+Create variety across the 10 wishes, including a mix of:
+
+- Warm and heartfelt
+- Casual and friendly
+- Cheerful and energetic
+- Inspirational
+- Simple and elegant
+- Short and sweet
+- Thoughtful
+- Lightly humorous
+- Emotional
+- Celebration-focused
+
+Important:
+
+The wishes must feel specifically written for this person based on:
+- the event
+- relationship
+- age context when relevant
+- gender context when relevant
+- selected language
+
+Do not generate generic templates that ignore the event.
+
+Return only valid JSON matching the response schema.
+
+Do not include Markdown, headings, explanations, notes, or any text outside the JSON response.
+"""
+
+# API FOR GETTING THE WISHES SUGGESTIONS
+
+@app.post("/wishes-message-ideas")
+async def generate_wishes(request: WishesSuggestionRequest):
+    return {"suggestions":getSuggestions(request)}
+
+def getSuggestions(params: WishesSuggestionRequest):
+  models = [
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-2.5-flash"]
+  max_retries = 3
+  prompt=create_wishes_prompt(params)
+  for model in models:
+        for attempt in range(max_retries):
+            try:
+              response=client.models.generate_content(model=model,contents=prompt,config=types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_schema=WishesSuggestionResponse,
+        temperature=0.8,
+    ),)
+              return response.parsed
+            except Exception as e:
+                error =str(e).lower()
+                retryable=("high demand" in error
+                    or "429" in error
+                    or "503" in error
+                    or "resource_exhausted" in error
+                    or "unavailable" in error)
+                if retryable and attempt<max_retries-1:
+                    wait_time = 2 ** attempt  # 1, 2, 4 seconds
+                    print(
+                        f"Model {model} busy. Retrying in {wait_time}s..."
+                    )
+                    time.sleep(wait_time)
+                    continue
+                print(f"Model {model} failed: {e}")
+                break
+        return ("")
