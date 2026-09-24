@@ -505,7 +505,7 @@ async def askDoc(request:AskDocumentRequest):
         )    
 
 # WISHES SUGGESTION REQUEST MODEL
-class WishesSuggestionRequest(BaseModel):
+class SuggestionRequest(BaseModel):
     name: str = Field(min_length=1)
     dob: str
     gender: str
@@ -522,8 +522,20 @@ class Wishes(BaseModel):
 class WishesSuggestionResponse(BaseModel):
     Wishes: list[Wishes]
 
+
+# GIFT MODEL
+class Gift(BaseModel):
+    id: int
+    title: str
+    icon: str
+    description: str
+
+# GIFTS RESPONSE MODEL
+class GiftsIdeasResponse(BaseModel):
+    gifts:list[Gift]    
+
 # METHOD WHICH WILL CREATE & FILL THE DATA ON PROMPT
-def create_wishes_prompt(data: WishesSuggestionRequest) -> str:
+def create_wishes_prompt(data: SuggestionRequest) -> str:
 
     return f"""
 You are a professional greeting and message writer.
@@ -627,10 +639,10 @@ Do not include Markdown, headings, explanations, notes, or any text outside the 
 # API FOR GETTING THE WISHES SUGGESTIONS
 
 @app.post("/wishes-message-ideas")
-async def generate_wishes(request: WishesSuggestionRequest):
+async def generate_wishes(request: SuggestionRequest):
     return {"suggestions":getSuggestions(request)}
 
-def getSuggestions(params: WishesSuggestionRequest):
+def getSuggestions(params: SuggestionRequest):
   models = [
         "gemini-2.5-flash-lite",
         "gemini-2.0-flash",
@@ -643,6 +655,184 @@ def getSuggestions(params: WishesSuggestionRequest):
               response=client.models.generate_content(model=model,contents=prompt,config=types.GenerateContentConfig(
         response_mime_type="application/json",
         response_schema=WishesSuggestionResponse,
+        temperature=0.8,
+    ),)
+              return response.parsed
+            except Exception as e:
+                error =str(e).lower()
+                retryable=("high demand" in error
+                    or "429" in error
+                    or "503" in error
+                    or "resource_exhausted" in error
+                    or "unavailable" in error)
+                if retryable and attempt<max_retries-1:
+                    wait_time = 2 ** attempt  # 1, 2, 4 seconds
+                    print(
+                        f"Model {model} busy. Retrying in {wait_time}s..."
+                    )
+                    time.sleep(wait_time)
+                    continue
+                print(f"Model {model} failed: {e}")
+                break
+        return ("")
+
+
+# METHOD TO PREPARE THE GIFT SUGGESTION PROMPT
+def create_gifts_prompt(data:SuggestionRequest) -> str:
+    return f"""You are an expert gift recommendation assistant.
+
+Your task is to suggest thoughtful, practical, and appropriate gift ideas for the following person.
+
+Person details:
+
+* Name: {data.name}
+* Date of Birth: {data.dob}
+* Gender: {data.gender}
+* Relationship: {data.relationship}
+* Event: {data.event}
+* Language: {data.language}
+
+Generate exactly 10 unique gift suggestions.
+
+Use the provided information intelligently to make the recommendations feel relevant and personalized.
+
+Personalization rules:
+
+* Use the Date of Birth to infer the person's approximate age and suggest gifts that are appropriate for their age group.
+* Do not explicitly mention the person's exact age unless it is genuinely relevant.
+* Use the Relationship as one of the strongest signals for deciding how personal, emotional, casual, romantic, professional, or meaningful the gift should be.
+* Use Gender only when it genuinely helps make a recommendation more relevant.
+* Do not rely on gender stereotypes.
+* Use the Event to influence the type and emotional meaning of the gift.
+* Do not simply repeat the input values in the explanation.
+
+Event-specific guidance:
+
+If the event is Birthday:
+
+* Suggest gifts suitable for celebrating the person individually.
+* Consider fun, useful, memorable, experiential, personalized, and thoughtful ideas.
+* Recommendations may focus on hobbies, lifestyle, relaxation, experiences, keepsakes, or everyday usefulness.
+
+If the event is Anniversary:
+
+* Focus more on sentimental, relationship-focused, memorable, and experience-based gifts.
+* Consider gifts that celebrate shared memories, companionship, milestones, or time together.
+* Avoid generic birthday-style recommendations unless they also make sense for an anniversary.
+
+Relationship guidance:
+
+* Friend: casual, thoughtful, fun, useful, and memorable.
+* Best Friend: personal, meaningful, playful, sentimental, or experience-based.
+* Colleague: practical, tasteful, neutral, and professional.
+* Manager/Boss: respectful, polished, professional, and not overly personal.
+* Brother/Sister: personal, fun, useful, sentimental, or hobby-oriented.
+* Mother/Father: meaningful, thoughtful, useful, emotional, comfort-oriented, or experience-based.
+* Husband/Wife/Partner: romantic, personal, sentimental, meaningful, or experience-focused.
+* Relative: thoughtful, useful, warm, and family-appropriate.
+* Other relationships: infer an appropriate level of closeness from the provided relationship.
+
+Gift quality requirements:
+
+* Generate exactly 10 distinct gift ideas.
+* Do not repeat the same type of gift with minor wording changes.
+* Include a healthy mix of:
+
+  * Practical gifts
+  * Personalized gifts
+  * Experience-based gifts
+  * Sentimental gifts
+  * Lifestyle gifts
+  * Fun gifts
+  * Memorable gifts
+  * Simple gifts
+  * Premium-feeling ideas where appropriate
+* Prefer gift categories or ideas instead of specific commercial brands unless a brand is essential to understanding the recommendation.
+* Avoid recommendations that require assumptions about hobbies, profession, religion, medical needs, body size, dietary requirements, relationship status, or personal interests that were not provided.
+* Avoid gifts that may be embarrassing, offensive, overly intimate, unsafe, illegal, or inappropriate for the relationship.
+* Avoid highly sensitive gifts related to weight loss, health conditions, sexuality, politics, religion, or personal insecurities.
+* Do not recommend alcohol, tobacco, weapons, gambling-related products, or other age-restricted or potentially unsafe items.
+* Avoid overly expensive recommendations unless enough context is provided to justify them.
+
+Recommendation reasoning:
+
+For each gift:
+
+* Give the gift a short and clear title.
+* Provide a concise explanation of why it could be suitable.
+* Explain the relevance based only on the available context.
+* Keep the explanation useful and natural.
+* Do not pretend to know interests or preferences that were not provided.
+
+Language rules:
+
+* Write all user-facing text in the requested language: {data.language}.
+* If the language is Hinglish, naturally mix conversational Hindi written in English letters with English.
+* Keep the wording natural and culturally appropriate.
+* Avoid awkward literal translations.
+
+If optional information such as DOB, gender, or relationship is missing:
+
+* Do not guess it.
+* Continue using the information that is available.
+* Make the suggestions broader and safer where personalization is limited.
+
+Important:
+
+The recommendations should feel suitable for the person's:
+
+* Event
+* Relationship with the user
+* Approximate age, when DOB is available
+* Gender context, only when relevant
+* Requested language
+
+The suggestions should not feel like a generic list copied for every person.
+
+Return exactly 10 gift suggestions in the following JSON structure:
+
+{{
+"gifts": [
+{{
+"id": 1,
+"title": "Gift title",
+  "icon": "Gift emoji",
+"description": "Short explanation of the gift and why it is suitable."
+}},
+{{
+"id": 2,
+"title": "Gift title",
+  "icon": "Gift emoji",
+"description": "Short explanation of the gift and why it is suitable."
+}}
+]
+}}
+
+Return only valid JSON.
+
+Do not include Markdown, headings, commentary, explanations, notes, or any text outside the JSON response.
+"""
+
+  # API FOR GETTING THE WISHES SUGGESTIONS
+
+# API FOR GIFT SUGGESTION
+@app.post("/gift-ideas")
+async def generate_gift_ides(request: SuggestionRequest):
+    return {"giftIdeas":getGiftIdeas(request)}
+
+def getGiftIdeas(params: SuggestionRequest):
+  models = [
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-2.5-flash"]
+  max_retries = 3
+  prompt=create_gifts_prompt(params)
+  for model in models:
+        for attempt in range(max_retries):
+            try:
+              response=client.models.generate_content(model=model,contents=prompt,config=types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_schema=GiftsIdeasResponse,
         temperature=0.8,
     ),)
               return response.parsed
