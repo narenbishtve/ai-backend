@@ -644,10 +644,11 @@ async def generate_wishes(request: SuggestionRequest):
 
 def getSuggestions(params: SuggestionRequest):
   models = [
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash",
-        "gemini-2.5-flash"]
-  max_retries = 3
+          "gemini-3.5-flash-lite",
+          "gemini-3.8-flash",
+          "gemini-2.5-flash-lite",
+          "gemini-2.5-flash"]
+  max_retries = 4
   prompt=create_wishes_prompt(params)
   for model in models:
         for attempt in range(max_retries):
@@ -674,7 +675,8 @@ def getSuggestions(params: SuggestionRequest):
                     continue
                 print(f"Model {model} failed: {e}")
                 break
-        return ("")
+        
+  return ("")
 
 
 # METHOD TO PREPARE THE GIFT SUGGESTION PROMPT
@@ -777,6 +779,15 @@ If optional information such as DOB, gender, or relationship is missing:
 * Continue using the information that is available.
 * Make the suggestions broader and safer where personalization is limited.
 
+Icon rules:
+
+- The icon field must contain exactly one Unicode emoji.
+- Do not return words, labels, descriptions, emoji names, or text.
+- Do not return multiple emojis.
+- Do not return values like "desk", "gift", "speaker", or "plant".
+- If no perfect emoji exists, choose the closest relevant emoji.
+- Examples of valid values: "🎁", "☕", "🎲", "📓", "🔊", "🪴".
+
 Important:
 
 The recommendations should feel suitable for the person's:
@@ -822,19 +833,16 @@ async def generate_gift_ides(request: SuggestionRequest):
 
 def getGiftIdeas(params: SuggestionRequest):
   models = [
+        "gemini-3.5-flash-lite",
+        "gemini-3.8-flash",
         "gemini-2.5-flash-lite",
-        "gemini-2.0-flash",
         "gemini-2.5-flash"]
-  max_retries = 3
+  max_retries = 4
   prompt=create_gifts_prompt(params)
   for model in models:
         for attempt in range(max_retries):
             try:
-              response=client.models.generate_content(model=model,contents=prompt,config=types.GenerateContentConfig(
-        response_mime_type="application/json",
-        response_schema=GiftsIdeasResponse,
-        temperature=0.8,
-    ),)
+              response=client.models.generate_content(model=model,contents=prompt,config=types.GenerateContentConfig(response_mime_type="application/json",response_schema=GiftsIdeasResponse,temperature=0.8),)
               return response.parsed
             except Exception as e:
                 error =str(e).lower()
@@ -845,11 +853,10 @@ def getGiftIdeas(params: SuggestionRequest):
                     or "unavailable" in error)
                 if retryable and attempt<max_retries-1:
                     wait_time = 2 ** attempt  # 1, 2, 4 seconds
-                    print(
-                        f"Model {model} busy. Retrying in {wait_time}s..."
-                    )
+                    print(f"Model {model} busy. Retrying in {wait_time}s...")   
                     time.sleep(wait_time)
                     continue
                 print(f"Model {model} failed: {e}")
                 break
-        return ("")
+        
+  return None
